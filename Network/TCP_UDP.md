@@ -308,6 +308,7 @@
   
     - **주요 알고리즘**  
         <img src="./image/network_tcp_udp_img1.png"/>
+        (이미지 출처 - [File:TCP Slow-Start and Congestion Avoidance.svg](https://commons.wikimedia.org/wiki/File:TCP_Slow-Start_and_Congestion_Avoidance.svg))  
 
         - **느린 시작(Slow Start)**  
             처음에 `cwnd`는 1 MSS로 시작하고, `ACK`를 받을 때마다 지수적으로 증가한다. (RTT마다 2배씩 늘어남)
