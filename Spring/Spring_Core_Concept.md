@@ -140,10 +140,131 @@
 ## 3 AOP(Aspect-Oriented Programming)
 
 ## 4 스프링 MVC 아키텍처
-<img width="772" height="353" alt="image" src="https://github.com/user-attachments/assets/e351973f-8b01-4997-91b6-5e67b01f5cd3" />
+### 4.1 MVC 패턴과 스프링 MVC
+- **MVC 패턴**  
+  데이터(Model), 화면(View), 요청 로직(Controller)을 명확히 분리해서  
+  **유지보수성과 확장성을 높이**는 아키텍처 패턴이다.
+  
+- **스프링 MVC**  
+  Model → 화면에 보여줄 데이터, 비즈니스 로직의 결과  
+  View → 사용자에게 보이는 화면 (Thymeleaf, JSON 응답 등)  
+  Controller → 요청을 받아서 비즈니스 로직을 호출하고, 결과(Model)을 만들어서 View에게 전달
 
+- **스프링 MVC의 목표**  
+  개발자는 **비즈니스 로직에 집중**하고,  
+  웹 관련 처리(요청 파싱, 인코딩, 예외 처리, 뷰 선택, 리다이렉트 등)은 스프링 MVC의 인프라가 대신 처리하게 한다.
+
+### 4.2 스프링 MVC의 핵심 구조
+<img width="772" height="353" alt="image" src="https://github.com/user-attachments/assets/e351973f-8b01-4997-91b6-5e67b01f5cd3" />
+- **DispatcherServlet (프론트 컨트롤러)**  
+  모든 HTTP 요청이 먼저 들어오는 입구.  
+  서블릿 클래스(`HttpServlet`)의 구현체.
+  
+  - **하는 일**
+    1. 요청 URL, HTTP Method 등을 보고 어느 컨트롤러에 보낼지 조회(`HandlerMapping`)
+    2. 해당 컨트롤러를 실행할 수 있는 어댑터 찾기(`HandlerAdapter`)
+    3. 컨트롤러 호출 → `ModelAndView` 또는 다른 형태의 응답 결과를 받음
+    4. `ViewResolver`로 실제 View를 찾고 렌더링해서 응답
+
+- **Handler (Controller)**  
+  `@Controller`, `@RestController` 클래스의 메서드들  
+  → 핵심 비즈니스 흐름만 신경 쓰면, 요청 파싱/응답 변환은 스프링이 해준다.
+
+- **HandlerMapping**  
+  URL, HTTP Method에 해당하는 컨트롤러 메서드를 찾아준다.  
+  (스프링 부트에서는 `@RequestMapping`, `@GetMapping` 등을 분석해서 내부적으로 매핑 정보를 전부 만들어 놓는다.)
+  
+  ex) `/restaurants/1` 요청에 대해 `RestaurantController#getRestaurant()` 메서드를 찾아줌
+
+- **HanderAdapter**  
+  `HandlerMapping`이 메서드 핸들러를 찾아줬다면,  
+  `HandlerAdapter`는 해당 핸들러를 **실제로 실행하는 방법을 알고 있는 객체**이다.  
+  → 해당 메서드를 실제로 호출하고, 결과를 `ModelAndView` 형태로 만들어준다.  
+
+  (스프링은 다양한 형태의 핸들러(컨트롤러)를 지원하기 때문에,  
+  호출 방법을 알고 있는 객체(HandlerAdapter)가 필요하다.)
+
+- **ViewResolver**  
+  컨트롤러에서 반환한 View 이름으로 **실제 View 객체**를 찾는다.  
+
+  ex) `"restaurant/detail"`을 반환 → `src/main/resources/templates/restaurant/detail.html` 실제 파일을 찾아서 **View 객체**를 만든다.
+
+  Thymeleaf를 사용하면 `ThymeleafViewResolver`이고, JSP면 `InternalResourceViewResolver`가 구현체가 된다.  
+  `@RestController`나 `@ResponseBody`를 사용한 경우는 ViewResolver를 거치지 않고, 바로 `HttpMessageConverter`를 통해 JSON 같은 바디로 변환된다.
+
+- **View**  
+  최종적으로 **렌더링을 수행**하는 객체이다.  
+  **실제 응답 바디**를 만든다.  
+
+  SSR(Thymeleaf)라면 템플릿에 `model`을 넣고 HTML을 렌더링한다.  
+  View 객체에 대해 **`render` 함수를 호출**한다.
+  
+  REST라면 JSON으로 직렬화한다.  
+  View 객체가 생성되지 않고, `HttpMessageConverter`로 직렬화된 바디를 생성한다.
 
 ## 5 스프링 요청 처리 전체 흐름
+클라이언트에서 리버스 프록시를 거쳐, 톰캣 및 스프링까지의 흐름
+
+### 5.1 클라이언트 → Nginx (리버스 프록시)
+1. DNS 조회
+2. TCP 연결
+3. TLS 핸드셰이크 (HTTPS의 경우)
+4. HTTP 요청 전송
+
+### 5.2 Nginx (리버스 프록시)
+1. 요청 수신 & 서버 블록 매칭
+2. 리버스 프록시로 업스트림에 전달 (톰캣과 TCP 연결 생성, 또는 기존 keep-alive 재사용)
+3. 버퍼링 / 타임아웃 / 로드밸런싱
+
+### 5.3 Nginx → Tomcat (스프링 부트 내장 톰캣)
+1. **톰캣 커넥터가 요청 수신**
+   
+   스프링 부트 기준으로 톰캣 요청 수신 포트 번호는 `server.port=8080`으로 설정되어 있다.  
+   → **8080 포트로 오는 요청**은 OS 커널이 **Tomcat 프로세스로 전달**해준다.  
+   
+   이때 실제로 요청을 받는 주체는 **Tomcat의 Connector**이고,  
+   `Connector → ProtocalHandler → Executor` 구조로 되어있다.  
+
+   - `Connector`: 8080 포트와 연결된 HTTP 커넥터
+   - `ProtocolHandler`: HTTP/1.1, NIO 같은 프로토콜 처리 담당
+   - `Executor`: ThreadPoolExecutor 기반의 스레드 풀
+
+   → 요청이 들어오면 Executor의 워커 스레드 중 하나를 빌려와서 해당 요청을 처리하게 된다.
+   
+2. **HTTP 요청 파싱**  
+   
+   톰캣이 HTTP 헤더, 메서드, URI, 바디 등을 파싱하고,  
+   `HttpServletRequest`, `HttpServletResponse` 객체를 생성한다.  
+
+   → 서블릿 호출 전에 파싱이 완료된다.
+
+   - **서블릿(Servlet)**
+      
+     Servlet은 HTTP 요청을 받아 로직을 수행하고 HTTP 응답을 만드는 **자바 기반 서버 측 컴포넌트(스펙)** 이다.  
+     → Servlet은 규약(인터페이스, `HttpServlet`)이고, Tomcat같은 WAS는 이를 구현한 것이다.  
+     → Tomcat은 Servlet을 지원하는 Servlet Container.
+   
+3. **서블릿 컨테이너로 진입**
+   
+   톰캣은 **서블릿 스펙**에 따라 요청을 해당하는 서블릿으로 전달한다.  
+
+   스프링 부트의 경우는 `DispatcherServlet`을 대표 서블릿으로 `/`에 매핑해둬서 모든 요청이 `DispatcherServlet`의 `service()` 메서드로 들어간다.
+
+4. **FilterChain 호출**  
+
+   톰캣은 실제로는 DispatcherServlet의 `service()`를 직접 호출하지 않는다.  
+   FilterChain을 호출하고, 그 안에서 `service()`를 호출한다.  
+
+   → 마지막 필터에서 `service()`를 호출한다.  
+   → 필터가 등록되어 있다면, `service()` 전후에 필터 체인 로직들이 호출된다.
+
+5. **DispatcherServlet → 스프링**  
+
+   `HandlerMapping`으로 핸들러 찾기  
+   → 핸들러 타입에 맞는 `HandlerAdapter` 찾기  
+   → 핸들러 호출하기  
+   → `ViewResolver` 또는 `HttpMessageConverter`로 응답 생성  
+   → 응답(HTML, JSON 등)을 `HttpServletResponse`의 body에 기록
 
 ## 6 스프링 빈 생명주기 & 확장 포인트
 ### 6.1 Bean LifeCycle
