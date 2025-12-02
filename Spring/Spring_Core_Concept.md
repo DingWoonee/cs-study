@@ -156,11 +156,12 @@
 
 ### 4.2 스프링 MVC의 핵심 구조
 <img width="772" height="353" alt="image" src="https://github.com/user-attachments/assets/e351973f-8b01-4997-91b6-5e67b01f5cd3" />
-- **DispatcherServlet (프론트 컨트롤러)**  
-  모든 HTTP 요청이 먼저 들어오는 입구.  
-  서블릿 클래스(`HttpServlet`)의 구현체.
+
+- **DispatcherServlet(프론트 컨트롤러)**  
+   모든 HTTP 요청이 먼저 들어오는 입구.  
+   서블릿 클래스(`HttpServlet`)의 구현체.
   
-  - **하는 일**
+  - **하는 일**  
     1. 요청 URL, HTTP Method 등을 보고 어느 컨트롤러에 보낼지 조회(`HandlerMapping`)
     2. 해당 컨트롤러를 실행할 수 있는 어댑터 찾기(`HandlerAdapter`)
     3. 컨트롤러 호출 → `ModelAndView` 또는 다른 형태의 응답 결과를 받음
@@ -268,6 +269,73 @@
 
 ## 6 스프링 빈 생명주기 & 확장 포인트
 ### 6.1 Bean LifeCycle
+1. **BeanDefinition 로딩 단계**  
+   > 스프링이 설정 정보를 읽어서 "빈 설계도"를 만든다.  
+
+   - `@Configuration` + `@Bean`
+   - `@ComponentScan`으로 찾은 `@Component`, `@Service`, `@Repository`, `@Controller` 등
+   - XML, JavaConfig 등  
+
+   ⇒ "실제 객체"를 만들지는 않고, 생성을 위한 "메타데이터"만 갖고 있는 단계이다.
+
+2. **인스턴스 생성 및 의존성 주입 단계**  
+   >설계도(BeanDefinition)를 보고 실제 객체를 생성하는 단계이다.  
+
+   - 생성자 주입 → 객체를 생성할 때 의존성이 필요함
+   - 필드 주입 / 세터 주입 → 객체를 생성하고 이후에 의존성을 주입해도 됨  
+
+   ⇒ 주입 방식에 따라 객체 생성 및 의존성 주입이 진행된다.  
+   ⇒ 또한 `@Value` 같은 값도 주입된다.
+
+3. **(`Aware` 인터페이스를 구현한 경우) Aware 단계**  
+   > "스프링이 빈에게 스프링 내부 인프라 객체들을 알려주는 단계"이다.  
+
+   `BeanNameAware`  
+   → 이 빈이 컨테이너에 등록된 이름을 알 수 있음 (로깅, 디버깅 등에 사용)  
+   
+   `BeanFactoryAware`  
+   → `BeanFactory` 자체를 받아서 특정 빈을 지연 조회할 수 있음  
+   
+   `ApplicationContextAware`  
+   → `BeanFactory`보다 많은 기능을 제공하는 `ApplicationContext` 전체에 접근  
+
+   `EnvironmentAware`  
+   → 활성 프로필이나 시스템 환경 변수, `application.yml` 설정 값 등에 접근  
+
+   이 외에 여러 Aware 인터페이스가 존재한다.
+
+4. **초기화 콜백(Initialization) 단계**  
+   > 빈에 모든 필요한 정보가 다 제공된 이후의 단계로 초기화 함수들을 호출해준다.  
+
+   `@PostConstruct`, `InitializingBean` 인터페이스, `@Bean(initMethod = "init")`의 초기화 콜백 방식이 있다.    
+
+   초기화 콜백은 해당 빈 하나를 초기화하는 시점에서 필요한 작업을 수행할 때 사용한다.  
+   ex) 초기 계산 로직, 초기 값 세팅, 생성자에 넣기에는 적합하지 않은 무거운 초기화 작업
+
+   - **주의점**  
+    초기화 콜백은 AOP가 적용되기 전에 수행되고, 이로 인해 **`@Transactional`, `@Async`, `@Cacheable` 같은 것이 적용되지 않는다**.  
+    (모든 빈이 생성되고 의존성이 주입되었기 때문에 DB 접근은 가능하다.)
+
+5. **사용 단계**  
+   > 애플리케이션이 동작하는 동안 빈을 사용한다.  
+   
+   스코프에 따라 생명주기가 달라진다.  
+   - **singleton scope**  
+     → 컨테이너 생성 시 만들고, 종료 시까지 유지된다.
+   - **prototype scope**  
+     → 요청할 때마다 새로 만들고, 컨테이너는 소멸 관리를 하지 않는다. (그래서 `@PreDestroy`는 실행되지 않는다.)
+   - **request/session scope**  
+     → 웹 요청/세션의 라이프사이클과 함께 생성되고 소멸된다.
+
+6. **소멸(Destroy) 콜백 단계**  
+   > 컨테이너가 종료될 때, 빈이 정리 작업을 할 수 있는 구간이다.  
+
+   1. `@PreDestroy` 호출
+   2. `DisposableBean` 인터페이스의 `destroy()` 호출
+   3. `@Bean(destroyMethod = "close")` 호출
+
+   (prototype scope인 빈은 이것들이 자동 호출되지 않는다.)
+
 ### 6.2 BeanPostProcessor / FactoryPostProcessor
 ### 6.3 커스텀 확장 포인트
 
