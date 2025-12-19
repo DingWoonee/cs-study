@@ -7,19 +7,138 @@
 
 ## 1 비선형 자료구조 개요
 ### 1.1 선형 vs 비선형 자료구조
+- **선형 자료구조**  
+  > 데이터가 하나의 직선 흐름으로 나열된 자료구조이다.  
+  
+  → 앞-뒤 관계만 존재한다.  
+  → 한 요소의 이전과 이후 요소는 최대 한 개만 존재한다.
+
+  Array, LinkedList, Stack, Queue 등
+
+- **비선형 자료구조**  
+  > 데이터가 계층적 또는 네트워크 형태로 연결된 자료구조이다.  
+
+  → 한 요소가 여러 요소와 관계를 가질 수 있다.  
+  → 한 요소가 여러 요소와 연결될 수 있다.
+
+  Tree, Graph, Hash, Heap 등
+
+**핵심 차이**: 선형은 "순서"고, 비선형은 "관계"다.
 
 ### 1.2 비선형 자료구조의 특징
+- 계층적 구조로 표현될 수 있다.
+- 다중 경로로 탐색할 수 있다.
+- 비순차적으로 접근할 수 있다.
+
+> 비선형 자료구조란,  
+> 데이터를 순서가 아닌 관계/계층/규칙으로 조직하여  
+> **효율적인 탐색과 처리**를 가능하게 하는 구조이다.
 
 ## 2 Map 자료구조
 ### 2.1 Map의 개념과 역할
+> Map은 Key로 Value를 매핑하는 자료구조이다.  
+
+선형 자료구조가 "인덱스"로 요소를 찾는다면, Map은 **"Key"** 로 찾는다.  
+→ **숫자(인덱스)가 아닌 값으로 어떤 값을 빠르게 찾을 수 있다.** 
 
 ### 2.2 Map의 ADT
+Map ADT는 key를 기반으로 value를 저장/조회/삭제하는 연산 집합이다.
 
-### 2.3 Hash 기반 Map
+- **`put(key, value)`**
 
-### 2.4 Tree 기반 Map
+  key에 대응되는 value를 저장하거나 갱신한다.
+  
+- **`get(key)`**
+
+  key에 대응되는 value를 반환한다.
+
+- **`remove(key)`**
+
+  key와 그에 대응되는 value를 제거한다.
+  
+- **`containsKey(key)`**
+
+  key가 Map에 존재하는지 여부를 반환한다.
+  
+- **`size()`**
+
+  Map에 저장된 key의 개수를 반환한다.
+
+### 2.3 Hash 기반 Map (`HashMap`)
+> Map의 구현체 중 하나로, key에 해당하는 Hash 함수값으로 value를 빠르게 찾아오는 Map이다.
+
+- **기본 구조**  
+
+  내부에 **버킷 배열**이 존재한다.  
+  → `index = hash(key) % M` 같은 방식으로 버킷 위치를 찾고, 그 버킷에 엔트리(값)를 저장한다.
+
+- **해시 함수의 역할**  
+
+  같은 키에 대해 같은 해시값을 반환한다.
+
+  다른 키는 해시가 "고르게 퍼지게" 한다.
+
+- **충돌(Collision) 처리**  
+
+  서로 다른 key가 같은 버킷에 들어올 때 대표적으로 두 가지 방식 중 하나를 사용한다.  
+  → Chaning vs Open Addressing  
+  → **Java `HashMap`은 기본적으로 `LinkedList`** 를 활용해 Chaining 방식으로 동작하고,  
+  **버킷이 너무 길어지면 Red-Black Tree로 전환**해서 성능 악화를 방지한다.  
+  (버킷의 엔트리 수가 줄어들면 다시 `LinkedList`로 돌아간다.)
+
+- **load factor와 rehash**  
+  Java `HashMap`은 load factor(저장된 엔트리 수 / 버킷 배열 크기)가 임계치를 넘으면 rehash 과정을 거친다.
+
+  → Hash 배열 크기를 2배로 늘리고, 전체 엔트리를 다시 분배한다.  
+  (hash를 재계산 하는 것이 아니라 기존 hash 값을 활용해서 비트 연산으로 재배치한다.)
+
+### 2.4 Tree 기반 Map (`TreeMap`)
+> `HashMap`은 Hash값으로 바로 접근했다면, `TreeMap`은 **정렬된 트리 구조**를 유지하면서 key로 찾는 Map이다.  
+> `TreeMap`은 **정렬 순서(key 기준 오름차순이 디폴트)를 보장**한다.
+
+- **기본 구조**
+  
+  `TreeMap`은 내부적으로 이진 탐색 트리 기반으로 구현되고, Java에서는 **Red-Black Tree(RBT)** 로 구현된다.
+
+  → Red-Black Tree 특성상 트리 높이가 `O(log n)`가 되도록 보장하고, 균형을 유지한다.  
+  → 삽입/조회/삭제에 `O(log n)`의 시간 복잡도를 갖는다.
+
+- **정렬 기준**  
+
+  ```java
+  TreeMap<String, Integer> map =
+      new TreeMap<>(Comparator.comparingInt(String::length));
+  
+  map.put("apple", 1);   // 길이 5
+  map.put("banana", 2);  // 길이 6
+  map.put("kiwi", 3);    // 길이 4
+  
+  System.out.println(map.keySet());
+  // 출력: [kiwi, apple, banana]
+  ```
+  Java의 `TreeMap`은 `Comparator`를 통해 커스텀 정렬 기준을 설정할 수 있다.  
+  (`Comparator`를 따로 제공하지 않으면 key 기준으로 오름차순으로 정렬된다.)
+
+- **범위 탐색**  
+
+  ```java
+  map.subMap(20, 50);        // 20 ≤ key < 50
+  map.subMap(20, true, 50, true); // 20 ≤ key ≤ 50
+  ```
+  Java의 `TreeMap`은 `subMap` 등의 API를 통해 범위 탐색을 간편하게 할 수 있다.
 
 ### 2.5 HashMap vs TreeMap
+- **HashMap**  
+
+  - 삽입/조회/삭제 시간 복잡도: 평균 `O(1)` (최악의 경우 `O(n)`이지만, 매우 희박)
+  - 정렬이 되지 않는다.
+  - 범위 탐색이 되지 않는다.
+
+- **TreeMap**  
+
+  - 삽입/조회/삭제 시간 복잡도: `O(log N)`으로 안정적
+  - 키를 기준으로 정렬된 상태를 유지
+  - 범위 탐색에 매우 강하다.
 
 ## 3 Heap 자료구조
 ### 3.1 Heap의 정의
@@ -32,7 +151,7 @@
 
 ### 3.5 Heap의 활용 사례
 
-## 4 PrioriryQueue
+## 4 PriorityQueue
 ### 4.1 PriorityQueue의 개념
 
 ### 4.2 PriorityQueue의 동작 원리
