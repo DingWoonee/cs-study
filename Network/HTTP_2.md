@@ -130,3 +130,210 @@ HTTP/1.1는 텍스트 기반이었지만, HTTP/2는 **바이너리(프레임)로
   - 프레임 단위여서 멀티플렉싱 구현이 쉬움
 
 ### 3.2 Stream / Message / Frame 구조
+HTTP/2에서는 데이터를 Frame, Message, Stream 세 가지로 계층적으로 나눈다.
+
+- **Frame(프레임)**
+
+  > HTTP/2에서 **전송의 최소 단위  
+  > (헤더와 바디 모두 프레임으로 쪼개진다.
+
+  각 프레임은 **Stream ID**가 붙어서 어느 요청/응답에 속하는지 표시되어 있다.
+
+  - **대표 프레임 타입**
+
+    `HEADERS`: 요청/응답 헤더  
+    `DATA`: 바디(본문)  
+    `SETTINGS`: 연결 설정 교환  
+    `WINDOW_UPDATE`: 흐름 제어  
+    `RST_STREAM`: 스트림 강제 종료  
+    `PING`: keepalive/RTT 측정  
+    `GOAWAY`: 연결 종료 예고
+
+- **Message(메시지)**
+
+  > HTTP에서 **요청 1개 / 응답 1개**를 의미
+
+  한 개의 HTTP 요청(또는 응답)이 프레임으로 쪼개져서 구성된다.
+
+- **Stream(스트림)**
+
+  > 요청/응답을 담는 논리적 채널
+
+  하나의 TCP 연결 안에는 스트림이 여러 개 동시에 존재한다.  
+  스트림마다 ID가 있다. (Stream ID)
+
+  클라이언트가 여는 스트림의 Stream ID - 홀수  
+  서버가 여는 스트림의 Stream ID - 짝수
+
+<img width="1262" height="1102" alt="image" src="https://github.com/user-attachments/assets/c94d8ffc-2c14-476b-b8be-866460b31008" />
+
+⇒ Stream = 요청/응답 1쌍의 논리적 통로  
+⇒ Message = 그 "요청 전체" 또는 "응답 전체"  
+⇒ Frame = 그 Message를 잘게 쪼갠 최소 전송 단위
+
+### 3.3 Multiplexing(다중화)
+- **HTTP/1.1**
+
+  ```
+  [요청1] --------> [응답1]
+  [요청2] --------> [응답2]
+  ```
+  하나의 연결에서 이전 요청/응답이 끝나야 다음 요청과 응답이 가능하다.
+
+- **HTTP/2**
+
+  ```
+  Stream 1 (요청 A):
+    HEADERS(A)  DATA(A1)  DATA(A2) ...
+  
+  Stream 3 (요청 B):
+    HEADERS(B)  DATA(B1)  DATA(B2) ...
+  
+  실제 전송은 프레임이 섞여서(interleaving) 감:
+    HEADERS(A) → HEADERS(B) → DATA(A1) → DATA(B1) → DATA(A2) → ...
+  ```
+  하나의 TCP 연결 위에서 여러 요청/응답이 프레임으로 나뉘어져서 **섞여서 동시에 간다**.
+
+⇒ Multiplexing을 통해 HTTP 레벨에서의 HOLB는 해결되었다.  
+(하지만, TCP 레벨에서의 HOLB는 해결 못함)
+
+## 4 Flow Control & Priority
+
+> [요약]  
+> HTTP/2는 다중화되었기 때문에, 누가 얼마나 보낼 수 있는지를 엄격히 관리해야 한다.
+
+### 4.1 Flow Control이 필요한 이유
+HTTP/2에서는 하나의 TCP 연결 위에 수십~수백 개의 스트림이 동시에 DATA 프레임을 보낼 수 있다.  
+→ 어떤 스트림이 대용량 데이터를 계속 줄 수 있다.  
+→ **수신 측 버퍼 폭발 & 다른 스트림 처리가 늦어짐**
+
+⇒ Multiplexing이 곧 Flow Control의 필요 원인
+
+### 4.2 Flow Control의 기본 개념
+HTTP/2의 Flow Control은 **수신자 기반**이다.  
+→ 수신자가 더 얼만큼 보내도 되는지 알려준다.  
+→ 송신자는 이 범위(window) 안에서만 프레임 전송 가능  
+(TCP의 흐름 제어와 비슷)
+
+### 4.3 두 단계 Flow Control 구조
+HTTP/2에는 두 가지 흐름 제어가 존재한다.
+
+- **Connection-level window**  
+
+  하나의 TCP 연결 전체에 대한 수신 허용량
+
+  → 스트림이 많아질 때 합산 폭주 방지;
+
+- **Stream-level window**
+
+  각 스트림별 수신 허용량
+
+  → 한 스트림의 영향력 조절
+
+⇒ 실제로 전송 가능한 양 = **min(Connection-level window, Stream-level window)**
+
+### 4.4 WINDOW_UPDATE 프레임
+> 수신자가 송신자에게 "이만큼 더 보내도 돼"를 알려주는 프레임
+
+→ **WINDOW_UPDATE가 늦으면 송신자는 대기할 수밖에** 없다.  
+→ HTTP/2의 튜닝 포인트
+
+### 4.5 Priority
+HTTP/2는 스트림마다 "**중요도**"를 표현할 수 있다.
+
+- **구성 요소**
+
+  - **Weight (1~256)**
+
+    상대적 비중  
+    숫자가 크다고 먼저 처리가 아니라, Weight 비율에 따라 처리량이 달라진다.  
+    → 더 큰 비중을 받는 것  
+    (형제 관계(같은 부모)에서만 Weight 비교로 처리의 순서가 나뉜다.)
+  - **Dependency (부모 스트림)**
+ 
+    이를 통해 Priority는 **트리 구조**가 된다.  
+    → 부모가 막히면 자식도 막힌다.
+  - **Exclusive 플래스**
+ 
+    부모의 다른 자식들을 자신의 자식으로 재배치 한다.  
+    → 트리 구조 재편성
+
+- **예시**
+
+  HTML → CSS → JS → 이미지 순으로 처리
+
+- **현실**
+
+  Priority는 구현 복잡도가 올라가고, 브라우저마다 정책이 다르다.  
+  → Priority는 잘 쓰이지 않고, "힌트" 정도의 역할만 한다.  
+  (실제 성능은 Flow Control이 좌우한다.)
+
+## 5 HAPCK (헤더 압축)
+> [요약]  
+> HTTP/2는 헤더를 '번호(인덱스)'로 참조하고, 상태를 공유해 **반복 전송을 제거**한다.
+
+### 5.1 HPACK의 기본 아이디어
+- **기존**
+  
+  HTTP/1.1은 헤더를 매 요청마다 그대로 재전송했다.  
+  또한 헤더를 압축하지도 않았다.
+  
+  → 매우 비효율적이다.
+
+- **HPACK의 기본 아이디어**
+
+  1. 헤더 이름/값을 번호로 참조
+  2. 연결 단위로 상태를 공유
+  3. 압축 방식은 결정적(deterministic)
+
+### 5.2 HPACK 구성 요소
+- **Static Table (고정 테이블)**
+
+  - HTTP에서 자주 쓰는 테이블을 미리 정의 (헤더 각 요소의 인덱스가 지정됨)
+  - 이름만 정의된 항목도 있고, 이름+값이 함께 정의된 항목도 있다.
+  - 각 항목은 고정된 인덱스를 가지며 통신 중 변경되지 않는다.
+  - 예시  
+    `:method: GET`은 2번 인덱스  
+    `:status: 200`은 8번 인덱스  
+    `:status: 400`은 12번 인덱스  
+    `:accept-charset:`은 15번 인덱스
+
+- **Dynamic Table (동적 테이블)**
+
+  - **연결마다 달라질 수 있는 헤더**들이 저장된다. (인증 토큰 등)
+
+  - 이 연결에서 실제로 주고받은 헤더를 저장한다.  
+  (클라이언트와 서버가 **동기화된 상태**로 유지)
+
+- **Header Encocding Rules**
+
+  - 이전에 주고 받은 내용이랑 **같은 경우**  
+    → 인덱스만 보낸다.
+
+  - **이름만 같은 경우**  
+    → 인덱스와 새로운 값을 보낸다.
+
+  - **처음 등장하는 경우**  
+    → 이름과 값을 literal로 전송  
+    → 필요 시 Dynamic Table에 추가
+
+### 5.5 Header 표현 방식
+HPACK은 헤더를 보낼 때 **의도를 명확히 표현**한다.
+
+- **Indexed Header Field**
+
+  Static / Dynamic Table에 있는 항목 → **압축률 높음**
+
+- **Literal Header Field (with indexing)**
+
+  새 헤더 전송 하면서 테이블에 추가  
+  → **이후 재사용**
+
+- **Literal Header Field (without indexing)**
+
+  한 번만 쓰고 **테이블에 저장 안함**  
+  → 민감한 값에 사용
+
+- **Never Indexed**
+
+  절대 테이블 저장 금지
