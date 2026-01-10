@@ -387,23 +387,131 @@ Sharding은 도입 비용이 크지만, 필요해졌을 때는 **피할 수 없�
 - **비용/복잡도를 감수할 만큼 규모가 커졌을 때**
 
 ## 5 Replication + Sharding 함께 쓰기
+실무에서는 보통 Sharding으로 Write와 Capacity를 분산하고, 각 샤드 내부에서 Replication으로 HA와 Read를 확장한다.
+
 ### 5.1 실전 아키텍처
 - **Shard + Replica 구조**
 
   <img width="700" alt="image" src="https://github.com/user-attachments/assets/8d12d157-303d-46ef-b06e-60a2d552460c" />
 
-  
+  - 샤드 단위로 데이터가 나뉘어 저장되기 때문에 용량과 쓰기가 분산된다.
+  - 각 샤드에는 데이터가 복제되어 저장되기 때문에 HA와 읽기 분산 효과를 얻는다.
 
+- **Read / Write 라우팅**
+
+  애플리케이션(또는 DB 미들웨어)은 다음 두 가지를 결정해야 한다.
+
+  1. **어떤 샤드로 보낼 것인가? (Shard Routing)**
+
+     샤드 키로 Shard ID 계산
+     
+  2. **그 샤드에서 Primary로? Replica로? (Replica Routing)**
+ 
+     Write → 해당 샤드의 Primary로
+
+     Read → 샤드의 Replica (또는 Primary)  
+     (일반적으로 Replica로 라우팅하지만, 방금 쓴 것을 읽거나 일관성이 중요한 경우 Primary로 보낸다.)
 
 ### 5.2 장애 상황별 동작
+- **Replica 장애**
 
-### 5.3 트랜잭셕놔 일관성
+  **상황**  
+  → 특정 Replica가 다운됨
+
+  **동작**  
+  → 해당 Replica로 가던 Read를 다른 Replica로 라우팅, 필요하면 Replica 재구성
+
+  **영향**  
+  → 서비스 영향이 크지는 않다. (read scale-out이 좀 감소됨)
+
+- **Primary 장애 (Failover)**
+
+  **상황**  
+  → 특정 샤드의 Primary가 다운됨
+
+  **동작**  
+  → 해당 샤드의 Replica 중 하나를 Primary로 승격  
+  → 라우팅 정보(Primary endpoint)를 즉시 갱신  
+  → Write 트래픽을 새 Primary로 전환
+
+  **핵심 리스크**  
+  → 비동기 복제인 경우에 새 Primary가 최신 커밋을 다 못받을 수도 있음  
+  → 데이터 유실 가능성
+
+  **실무 대응**  
+  - **Semi-sync**
+    
+    → 데이터 유실 방지
+  - **Event Log**
+    
+    → DB가 죽어도 로그로 재구성 가능 (이중 장치)
+  - **Write freeze**
+    
+    → Failover 중에는 모든 쓰기를 막는다.  
+    → **일단 Replica 중 최신을 선출하고 동기화** 한 후에 새 Primary를 승격하고 Write를 재개한다.
+
+- **Shard 전체 장애**
+
+  **상황**  
+  → 샤드의 Primary와 Replica가 모두 장애
+
+  **영향**  
+  → 전체가 아니라 **부분 서비스가 다운됨**  
+  (다른 샤드의 데이터는 정상 동작함)
+
+  **대응 전략**  
+  - **Multi-AZ / Multi-Region 복제**
+    
+    → 같은 샤드의 Primary와 Replica는 서로 다른 AZ(Availability Zone, 가용 영역)에 둔다.  
+    → 같이 죽지 않게 함  
+    (Replication은 서로 다른 AZ로!!)
+  - **샤드별 서킷 브레이커**
+    
+    특정 샤드가 동작이 안되는데 계속 재시도 요청을 보내면 **전체 서비스로 장애가 전파**될 수 있음  
+    → 특정 샤드가 죽으면 **그 샤드로 가는 요청은 즉시 실패**  
+    → 장애 전파를 막음
+  - **부분 기능 제한 모드**
+    
+    특정 샤드의 모든 기능을 막는 것이 아니라 쓰기만 막아서 Replication이나 캐시 등으로 처리가능 한 기능은 사용할 수 있게 해준다.
+
+### 5.3 트랜잭셕과 일관성
+- **Single-shard Transaction**
+
+  > 트랜잭션이 **한 샤드 안에서만** 일어난다.
+  
+  일반 DB 트랜잭션을 그대로 사용 가능하고, 가장 쉽고 권장된다.
+
+  - **설계 원칙**
+    **중요한 비즈니스 경계(aggregate)**를 샤드 키 기준으로 묶어서  
+    "한 요청의 핵심 쓰기"가 한 샤드에서 끝나게 설계해야 한다.  
+    → 즉, **하나의 비즈니스 트랜잭션에 속해야 하는 데이터는 반드시 하나의 샤드에 있어야** 한다.
+
+- **Distributed Transaction의 한계**
+
+  > 트랜잭션이 샤드 A와 샤드 B를 동시에 건드린다.
+
+  ex) A 샤드의 user1 계좌에서 출금, B 샤드의 user2 계좌로 입금
+
+  분산 트랜잭션은 응답 레이턴시가 증가하고, 락 유지 시간이 증가하면서 성능이 저하되는 등  
+  운영 난이도가 높다.  
+  → **실무에서는 분산 트랜잭션을 거의 사용하지 않는다**.
+
+  - **대표적 대안**
+
+    Sage 패턴(보상 트랜잭션)  
+    이벤트 기반 eventual consistency  
+    등
 
 ## 6 실제 DB 시스템에서의 적용
 ### 6.1 MySQL
+> MySQL에서 Replication은 DB가 제공하지만,  
+> Sharding은 애플리케이션이 직접 구현해야 한다.
+
+애플리케이션이 shard를 계산하고 해당 DB의 커넥션 풀을 이용해 쿼리를 실행해야 한다.
 
 ### 6.2 MongoDB
+> MongoDB는 Replication과 Sharding을 DB 엔진 레벨에서 통합 제공한다.
 
 ### 6.3 Redis
-
+> Redis는 Replication과 Sharding을 DB 엔진 레벨에서 통합 제공한다.
 
